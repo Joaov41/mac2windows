@@ -44,6 +44,7 @@ The Windows browser shows **Send to Mac**.
 
 - **Clipboard:** paste text into the page and click **Send to Mac clipboard**. After confirmation, paste on the Mac with **Command+V**.
 - **Files:** choose one or more files and click **Send files to Mac**. Progress and a result appear for each upload.
+- Keep the Mac page open to see a brief filename notification whenever a file arrives from Windows. Multiple arrival notifications appear in sequence.
 - Received files are saved in the project's `received/` folder. Use **Open Received Files** in the Mac menu to find them.
 
 Windows clipboard sending is manual. With **Auto Clipboard** enabled on the Mac, text received from Windows also appears in the shared clipboard display when the Mac watcher reads it.

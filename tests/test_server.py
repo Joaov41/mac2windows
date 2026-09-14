@@ -22,6 +22,7 @@ class Transfers(unittest.TestCase):
         Path(s.UPLOAD_DIR).mkdir()
         Path(s.RECEIVE_DIR).mkdir()
         s._sent_files.clear()
+        s._received_file_events.clear()
         s._clipboard_content.update(text='', timestamp=0)
         s.app.config['TESTING'] = True
         self.client = s.app.test_client()
@@ -182,6 +183,26 @@ class Transfers(unittest.TestCase):
             self.assertEqual(response.status_code, 413)
         self.assertEqual(self.client.get('/api/state').json['files'], [])
         self.assertEqual(list(Path(s.UPLOAD_DIR).iterdir()), [])
+
+    def test_receipts_only_after_successful_incoming_uploads(self):
+        self.assertEqual(self.client.get('/api/state').json['received_file_events'], [])
+        first = self.upload(b'one', 'first.txt')
+        second = self.upload(b'two', 'first.txt')
+        self.assertEqual((first.status_code, second.status_code), (201, 201))
+        events = self.client.get('/api/state').json['received_file_events']
+        self.assertEqual([e['name'] for e in events], ['first.txt', 'first (2).txt'])
+        self.assertEqual(len({e['id'] for e in events}), 2)
+        self.assertEqual(self.client.get('/api/state').json['received_file_events'], events)
+        with patch.object(s, 'MAX_FILE_BYTES', 1):
+            self.assertEqual(self.upload(b'too big').status_code, 413)
+        self.client.post('/api/share/file', data={'file': (io.BytesIO(b'outgoing'), 'out.txt')}, headers=self.headers)
+        self.assertEqual(self.client.get('/api/state').json['received_file_events'], events)
+        mac = self.client.get('/', headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}).data.decode()
+        self.assertIn('id="receipt-toast"', mac)
+        for event in events:
+            self.assertIn(event['id'], mac)
+        windows = self.client.get('/', headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}).data.decode()
+        self.assertNotIn('id="receipt-toast"', windows)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -5,6 +5,7 @@ The Windows machine connects to http://<mac-ip>:5577/ in any browser.
 """
 
 import os
+from collections import deque
 import secrets
 import subprocess
 import tempfile
@@ -31,6 +32,7 @@ app = Flask(__name__)
 _state_lock = threading.Lock()
 _clipboard_content = {"text": "", "timestamp": 0}
 _sent_files = []  # list of {"name", "path", "size", "timestamp"}
+_received_file_events = deque(maxlen=256)
 
 
 def set_clipboard(text: str):
@@ -58,8 +60,11 @@ def index():
     # Choose the browser's transfer direction, not the server's operating system.
     user_agent = request.headers.get("User-Agent", "")
     client_is_mac = "Macintosh" in user_agent and "Mobile" not in user_agent
+    with _state_lock:
+        received_file_ids = [event["id"] for event in _received_file_events]
     response = app.make_response(render_template(
         "index.html", incoming_token=_incoming_token, client_is_mac=client_is_mac,
+        received_file_ids=received_file_ids,
     ))
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -168,6 +173,9 @@ def submit_file(to_windows):
                 number += 1
         if to_windows:
             add_file(os.path.join(destination, saved_name))
+        else:
+            with _state_lock:
+                _received_file_events.append({"id": secrets.token_hex(16), "name": saved_name})
         return jsonify({"ok": True, "name": saved_name, "size": size}), 201
     except RequestEntityTooLarge:
         return jsonify({"error": "File is too large (maximum 2 GiB per file)."}), 413
@@ -187,6 +195,7 @@ def api_state():
     """Polled by the web page via JS for live updates."""
     with _state_lock:
         return jsonify({
+            "received_file_events": list(_received_file_events),
             "clipboard": _clipboard_content["text"],
             "clipboard_time": _clipboard_content["timestamp"],
             "files": [

@@ -120,6 +120,7 @@
         #toast { display: none; position: fixed; bottom: 20px; right: 24px; z-index: 20; max-width: min(410px, calc(100vw - 40px)); align-items: center; gap: 10px; padding: 13px 17px; color: #fff; background: #294b3c; border: 1px solid #3e6050; border-radius: 10px; box-shadow: 0 5px 20px #1933271a; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
         #toast.show { display: flex; animation: arrive .25s var(--ease); }
         #toast svg { width: 18px; height: 18px; }
+        #receipt-toast { position: fixed; bottom: 24px; right: 24px; z-index: 30; max-width: min(440px, calc(100vw - 48px)); padding: 18px 22px; background: var(--accent); color: #fff; border-radius: 12px; box-shadow: 0 8px 30px #19332740; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; animation: arrive .25s var(--ease); }
         @keyframes arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes breathe { 50% { opacity: .45; } }
         @media (min-width: 1280px) { .direction { padding: 28px; } }
@@ -227,6 +228,8 @@
     </div>
     <div id="toast" role="status"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg><span id="toast-text"></span></div>
 
+    {% if client_is_mac %}<div id="receipt-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>{% endif %}
+
     <script>
         const clientIsMac = {{ client_is_mac | tojson }};
         const transferBase = clientIsMac ? "/api/share" : "/api/receive";
@@ -236,6 +239,32 @@
         let lastFileCount = 0;
         let lastFileNames = [];
         let copyFeedbackTimer;
+        const seenReceivedFileIds = new Set({{ received_file_ids | tojson }});
+        const receiptQueue = [];
+        let showingReceipt = false;
+
+        function showNextReceipt() {
+            if (showingReceipt || !receiptQueue.length) return;
+            showingReceipt = true;
+            const toast = document.getElementById('receipt-toast');
+            toast.textContent = 'File received from Windows: ' + receiptQueue.shift();
+            toast.hidden = false;
+            setTimeout(() => {
+                toast.hidden = true;
+                showingReceipt = false;
+                showNextReceipt();
+            }, 8000);
+        }
+
+        function notifyReceivedFiles(events) {
+            if (!clientIsMac) return;
+            for (const event of events || []) {
+                if (seenReceivedFileIds.has(event.id)) continue;
+                seenReceivedFileIds.add(event.id);
+                receiptQueue.push(event.name);
+            }
+            showNextReceipt();
+        }
 
         function clipboardIsSelected() {
             const selection = window.getSelection();
@@ -247,6 +276,7 @@
             try {
                 const res = await fetch('/api/state');
                 const data = await res.json();
+                notifyReceivedFiles(data.received_file_events);
                 document.getElementById('status-dot').className = 'status-dot live';
                 document.getElementById('status-text').textContent = clientIsMac ? 'Ready on Mac' : 'Connected to Mac';
 
