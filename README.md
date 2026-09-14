@@ -33,7 +33,7 @@ No Python or other software is required on Windows. The page checks for updates 
 The Mac browser shows **Send to Windows** and **Available on Windows**.
 
 - **Clipboard:** copy text on the Mac to share it automatically, or paste text into the page and click **Send to Windows**. On Windows, click **Copy to clipboard**, then paste with **Ctrl+V**.
-- **Files:** choose files on the Mac page and click **Send files to Windows**. They appear under **From Mac** in the Windows browser; click **Download** to save each file.
+- **Files:** choose files on the Mac page and click **Send files to Windows**. They appear under **From Mac** in the Windows browser; click a filename to open a browser preview, or **Download** to save it.
 - **Folders:** use **Send Folder...** in the Mac menu. The app creates a ZIP file for Windows to download.
 
 The browser does not silently change the Windows system clipboard or download files. Use the Copy and Download buttons on Windows.
@@ -45,6 +45,7 @@ The Windows browser shows **Send to Mac**.
 - **Clipboard:** paste text into the page and click **Send to Mac clipboard**. After confirmation, paste on the Mac with **Command+V**.
 - **Files:** choose one or more files and click **Send files to Mac**. Progress and a result appear for each upload.
 - Keep the Mac page open to see a brief filename notification whenever a file arrives from Windows. Multiple arrival notifications appear in sequence.
+- The Mac page lists incoming files under **Received from Windows**. Click a filename to open the saved file in its usual Mac app, or use **Download**. Native opening is available only from the page on the Mac. On Windows, browser-supported formats open in a preview tab; other formats download for opening from the browser’s downloads.
 - Received files are saved in the project's `received/` folder. Use **Open Received Files** in the Mac menu to find them.
 
 Windows clipboard sending is manual. With **Auto Clipboard** enabled on the Mac, text received from Windows also appears in the shared clipboard display when the Mac watcher reads it.
@@ -65,8 +66,8 @@ Windows clipboard sending is manual. With **Auto Clipboard** enabled on the Mac,
 - Each file uploaded through the page is limited to **2 GiB**. Multiple files upload one at a time.
 - Browser uploads use safe filenames and numbered suffixes for duplicates.
 - Outgoing files live in `transfers/`; incoming files live in `received/`.
-- **Clear all** clears the outgoing clipboard display and deletes outgoing files from `transfers/`. It leaves `received/` and the Mac's system clipboard alone.
-- Outgoing listings and shared text are held in memory. Restarting resets them; files in `received/` remain on disk.
+- **Remove** hides one file; **Clear list** hides all currently listed files in that browser. These actions do not delete saved files, change the clipboard, or clear the other computer’s list. Hidden entries stay hidden after a page refresh; newly sent files still appear. Delete saved files through Finder or Windows File Explorer when needed.
+- File listings survive app restarts. Shared text is held in memory and resets when the app restarts; received files remain on disk.
 
 ## Local network use
 

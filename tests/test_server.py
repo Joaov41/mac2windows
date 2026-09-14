@@ -204,5 +204,68 @@ class Transfers(unittest.TestCase):
         windows = self.client.get('/', headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}).data.decode()
         self.assertNotIn('id="receipt-toast"', windows)
 
+    def test_received_listing_and_open_preserve_file_bytes(self):
+        content = b'Received document content'
+        response = self.upload(content, 'document.txt')
+        self.assertEqual(response.status_code, 201)
+        # Listing is based on saved files, not the transient notification queue.
+        s._received_file_events.clear()
+        files = self.client.get('/api/state').json['received_files']
+        self.assertEqual([file['name'] for file in files], ['document.txt'])
+        self.assertEqual(files[0]['size'], len(content))
+        for query, disposition in (('?open=1', 'inline'), ('?download=1', 'attachment')):
+            response = self.client.get('/api/received/file/document.txt' + query)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data, content)
+            self.assertTrue(response.headers['Content-Disposition'].startswith(disposition))
+            self.assertEqual(response.headers['Content-Security-Policy'], 'sandbox')
+            response.close()
+        self.assertEqual((Path(s.RECEIVE_DIR) / 'document.txt').read_bytes(), content)
+
+    def test_received_files_reject_hidden_partial_and_symlink_paths(self):
+        (Path(s.RECEIVE_DIR) / '.incoming-test').write_bytes(b'partial')
+        outside = self.root / 'outside.txt'
+        outside.write_bytes(b'not shared')
+        (Path(s.RECEIVE_DIR) / 'link.txt').symlink_to(outside)
+        self.assertEqual(self.client.get('/api/state').json['received_files'], [])
+        for name in ('.incoming-test', 'link.txt', '..%2Foutside.txt', '..%5Coutside.txt', 'missing.txt'):
+            self.assertEqual(self.client.get('/api/received/file/' + name).status_code, 404)
+
+    def test_outgoing_open_and_download(self):
+        file = Path(s.UPLOAD_DIR) / 'outgoing.txt'
+        file.write_bytes(b'outgoing preview')
+        s.add_file(str(file))
+        for query, disposition in (('?open=1', 'inline'), ('?download=1', 'attachment'), ('', 'attachment')):
+            response = self.client.get('/api/file/outgoing.txt' + query)
+            self.assertEqual(response.data, b'outgoing preview')
+            self.assertTrue(response.headers['Content-Disposition'].startswith(disposition))
+            self.assertEqual(response.headers['Content-Security-Policy'], 'sandbox')
+            response.close()
+
+    def test_native_open_requires_local_mac_and_valid_token(self):
+        self.upload(b'document', 'open-me.txt')
+        with patch.object(s.subprocess, 'run') as run:
+            response = self.client.post('/api/received/open/open-me.txt', headers=self.headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(run.call_args.args[0], ['/usr/bin/open', str(Path(s.RECEIVE_DIR) / 'open-me.txt')])
+            run.reset_mock()
+            self.assertEqual(self.client.post('/api/received/open/open-me.txt').status_code, 403)
+            with patch.object(s, 'request_is_from_mac', return_value=False):
+                self.assertEqual(self.client.post('/api/received/open/open-me.txt', headers=self.headers).status_code, 403)
+            self.assertEqual(self.client.post('/api/received/open/missing.txt', headers=self.headers).status_code, 404)
+            run.assert_not_called()
+
+    def test_shared_file_identity_survives_restart(self):
+        path = Path(s.UPLOAD_DIR) / 'keep.txt'
+        path.write_bytes(b'keep shared file')
+        s.add_file(str(path))
+        before = self.client.get('/api/state').json['files']
+        s._sent_files.clear()
+        s.restore_shared_files()
+        self.assertEqual(self.client.get('/api/state').json['files'], before)
+        response = self.client.get('/api/file/keep.txt')
+        self.assertEqual(response.data, b'keep shared file')
+        response.close()
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

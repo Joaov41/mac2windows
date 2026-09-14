@@ -115,6 +115,15 @@
         .upload-results { list-style: none; padding: 0; margin: 0; }
         .upload-results li { margin-top: 8px; padding: 8px 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; color: #45684f; }
         .upload-results .error { color: var(--danger); }
+        .file-name-link { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+        .file-actions { display: flex; align-items: center; gap: 12px; flex: none; }
+        .remove-file { border: 0; padding: 8px; background: none; color: var(--muted); font-size: 13px; }
+        .remove-file:hover { color: var(--danger); }
+        .received-panel { margin-top: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 19px; padding: 24px 28px; }
+        .received-panel .section-title { margin-bottom: 8px; }
+        .received-panel .empty-state { text-align: left; color: var(--muted); padding: 12px 0; }
+        .file-list-help { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 12px 0 0; }
+        @media (max-width: 470px) { .file-item { flex-wrap: wrap; gap: 8px; } .received-panel { padding: 20px; } }
         .footer { margin: 24px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }
         .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
         #toast { display: none; position: fixed; bottom: 20px; right: 24px; z-index: 20; max-width: min(410px, calc(100vw - 40px)); align-items: center; gap: 10px; padding: 13px 17px; color: #fff; background: #294b3c; border: 1px solid #3e6050; border-radius: 10px; box-shadow: 0 5px 20px #1933271a; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -181,11 +190,11 @@
                     <div class="timestamp" id="clipboard-time"></div>
                 </section>
                 <section class="section files-section" aria-labelledby="from-files-title">
-                    <div class="section-title"><h3 id="from-files-title">Files</h3><button type="button" class="clear-btn" onclick="clearAll()">Clear all</button></div>
+                    <div class="section-title"><h3 id="from-files-title">Files</h3><button type="button" class="clear-btn" id="clear-outgoing-list" onclick="clearFileList('outgoing')">Clear list</button></div>
                     <div class="empty-icon" aria-hidden="true"><svg viewBox="0 0 28 32"><path d="M17 2H5a2 2 0 0 0-2 2v24a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V10Z"/><path d="M17 2v9h8"/></svg></div>
                     <ul class="file-list" id="file-list"><li class="empty-state">No files sent yet.</li></ul>
                     <p class="empty-help">{{ "Send files here, or use the Mac menu to share a folder." if client_is_mac else "Use the Mac menu to share a file or folder." }}</p>
-                    <p class="clear-note">Clear all removes outgoing items only.</p>
+                    <p class="clear-note">Click a filename to open it. Clear list only hides entries in this browser.</p>
                 </section>
             </section>
             <section class="direction" aria-labelledby="to-mac-title">
@@ -224,6 +233,13 @@
                 </section>
             </section>
         </main>
+        {% if client_is_mac %}
+        <section class="received-panel" aria-labelledby="received-files-title">
+            <div class="section-title"><h3 id="received-files-title">Received from Windows</h3><button type="button" class="clear-btn" id="clear-received-list" onclick="clearFileList('received')">Clear list</button></div>
+            <ul class="file-list" id="received-file-list"><li class="empty-state">No received files.</li></ul>
+            <p class="file-list-help">Click a filename to open it in its Mac app. Remove and Clear list hide entries here; saved files stay on your Mac.</p>
+        </section>
+        {% endif %}
         <footer class="footer">Keep Mac2Windows running on your Mac.</footer>
     </div>
     <div id="toast" role="status"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg><span id="toast-text"></span></div>
@@ -239,6 +255,97 @@
         let lastFileCount = 0;
         let lastFileNames = [];
         let copyFeedbackTimer;
+        const hiddenFilesKey = 'mac2windows.hidden-files.v1.' + (clientIsMac ? 'mac' : 'windows');
+        let hiddenFiles = new Set();
+        try {
+            const saved = JSON.parse(localStorage.getItem(hiddenFilesKey) || '[]');
+            if (Array.isArray(saved)) hiddenFiles = new Set(saved.filter(key => typeof key === 'string'));
+        } catch (_) { /* Lists still work when browser storage is unavailable. */ }
+        const fileSnapshots = { outgoing: [], received: [] };
+        const renderedFileLists = { outgoing: null, received: null };
+
+        function fileKey(group, file) {
+            return JSON.stringify([group, file.name, file.size, file.timestamp]);
+        }
+
+        function persistHiddenFiles() {
+            try { localStorage.setItem(hiddenFilesKey, JSON.stringify([...hiddenFiles])); } catch (_) {}
+        }
+
+        function clearFileList(group) {
+            for (const file of fileSnapshots[group]) hiddenFiles.add(fileKey(group, file));
+            persistHiddenFiles();
+            renderFileList(group, fileSnapshots[group]);
+        }
+
+        function renderFileList(group, files) {
+            fileSnapshots[group] = files;
+            const list = document.getElementById(group === 'received' ? 'received-file-list' : 'file-list');
+            if (!list) return;
+            const visible = files.filter(file => !hiddenFiles.has(fileKey(group, file)));
+            const signature = JSON.stringify(visible);
+            if (renderedFileLists[group] === signature) return;
+            renderedFileLists[group] = signature;
+            list.replaceChildren();
+            document.getElementById('clear-' + group + '-list').disabled = !visible.length;
+            for (const file of visible) {
+                const row = document.createElement('li');
+                row.className = 'file-item';
+                const info = document.createElement('div');
+                const link = document.createElement('a');
+                const base = (group === 'received' ? '/api/received/file/' : '/api/file/') + encodeURIComponent(file.name);
+                link.className = 'file-name file-name-link';
+                link.textContent = file.name;
+                link.href = base + '?open=1';
+                link.target = '_blank';
+                link.rel = 'noopener';
+                link.setAttribute('aria-label', 'Open ' + file.name);
+                if (clientIsMac && group === 'received') {
+                    link.addEventListener('click', async event => {
+                        event.preventDefault();
+                        try {
+                            const response = await fetch('/api/received/open/' + encodeURIComponent(file.name), {
+                                method: 'POST', headers: { 'X-Mac2Windows-Token': incomingToken },
+                            });
+                            const result = await response.json();
+                            if (!response.ok) throw new Error(result.error || 'Could not open this file.');
+                            showToast('Opened ' + file.name);
+                        } catch (error) { showToast(error.message); }
+                    });
+                }
+                const size = document.createElement('div');
+                size.className = 'file-size';
+                size.textContent = file.size > 1048576 ? (file.size / 1048576).toFixed(1) + ' MB' : (file.size / 1024).toFixed(1) + ' KB';
+                info.append(link, size);
+                const actions = document.createElement('div');
+                actions.className = 'file-actions';
+                const download = document.createElement('a');
+                download.className = 'download-btn';
+                download.href = base + '?download=1';
+                download.download = file.name;
+                download.textContent = 'Download';
+                download.setAttribute('aria-label', 'Download ' + file.name);
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'remove-file';
+                remove.textContent = 'Remove';
+                remove.setAttribute('aria-label', 'Remove ' + file.name + ' from list');
+                remove.addEventListener('click', () => {
+                    hiddenFiles.add(fileKey(group, file));
+                    persistHiddenFiles();
+                    renderFileList(group, fileSnapshots[group]);
+                });
+                actions.append(download, remove);
+                row.append(info, actions);
+                list.appendChild(row);
+            }
+            if (!visible.length) {
+                const empty = document.createElement('li');
+                empty.className = 'empty-state';
+                empty.textContent = files.length ? 'List cleared.' : (group === 'received' ? 'No received files.' : 'No files sent yet.');
+                list.appendChild(empty);
+            }
+        }
         const seenReceivedFileIds = new Set({{ received_file_ids | tojson }});
         const receiptQueue = [];
         let showingReceipt = false;
@@ -297,32 +404,13 @@
                         ? 'Sent: ' + new Date(data.clipboard_time * 1000).toLocaleString() : '';
                 }
 
-                // Files
-                const fileList = document.getElementById('file-list');
-                if (data.files && data.files.length > 0) {
-                    // Detect new files
-                    let newFiles = data.files.filter(f => !lastFileNames.includes(f.name));
-                    if (newFiles.length > 0) {
-                        newFiles.forEach(f => showToast((clientIsMac ? 'File ready to download on Windows: ' : 'File received from Mac: ') + f.name));
-                    }
-                    lastFileNames = data.files.map(f => f.name);
-
-                    fileList.innerHTML = data.files.map(f => {
-                        const sizeStr = f.size > 1048576
-                            ? (f.size / 1048576).toFixed(1) + ' MB'
-                            : (f.size / 1024).toFixed(1) + ' KB';
-                        return `<li class="file-item">
-                            <div>
-                                <span class="file-name">${f.name}</span><br>
-                                <span class="file-size">${sizeStr}</span>
-                            </div>
-                            <a class="download-btn" href="/api/file/${encodeURIComponent(f.name)}" download>Download</a>
-                        </li>`;
-                    }).join('');
-                } else {
-                    fileList.innerHTML = '<li class="empty-state">No files sent yet.</li>';
-                    lastFileNames = [];
-                }
+                // Only rebuild file rows when their contents change, so clicks stay stable.
+                const files = data.files || [];
+                files.filter(file => !lastFileNames.includes(file.name)).forEach(file =>
+                    showToast((clientIsMac ? 'File ready to download on Windows: ' : 'File received from Mac: ') + file.name));
+                lastFileNames = files.map(file => file.name);
+                renderFileList('outgoing', files);
+                if (clientIsMac) renderFileList('received', data.received_files || []);
             } catch (e) {
                 document.getElementById('status-dot').className = 'status-dot offline';
                 document.getElementById('status-text').textContent = 'Mac offline. Retrying...';

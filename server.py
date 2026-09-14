@@ -5,8 +5,10 @@ The Windows machine connects to http://<mac-ip>:5577/ in any browser.
 """
 
 import os
+import json
 from collections import deque
 import secrets
+import socket
 import subprocess
 import tempfile
 import time
@@ -53,6 +55,45 @@ def add_file(filepath: str):
         })
         # Keep last 50
         del _sent_files[:-50]
+        persist_shared_files()
+
+
+def persist_shared_files():
+    """Called with the state lock held; keep transfer identities stable across restarts."""
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix=".shared-", dir=UPLOAD_DIR, delete=False) as output:
+            temporary_path = output.name
+            json.dump([{key: file[key] for key in ("name", "size", "timestamp")} for file in _sent_files], output)
+        os.replace(temporary_path, os.path.join(UPLOAD_DIR, ".shared-files.json"))
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+def restore_shared_files():
+    try:
+        with open(os.path.join(UPLOAD_DIR, ".shared-files.json"), encoding="utf-8") as source:
+            files = json.load(source)
+    except (OSError, ValueError):
+        return
+    if not isinstance(files, list):
+        return
+    restored = []
+    for file in files[-50:]:
+        if not isinstance(file, dict):
+            continue
+        name = file.get("name")
+        if not isinstance(name, str) or name.startswith(".") or "/" in name or "\\" in name:
+            continue
+        path = os.path.join(UPLOAD_DIR, name)
+        if os.path.islink(path) or not os.path.isfile(path):
+            continue
+        if not isinstance(file.get("timestamp"), (int, float)):
+            continue
+        restored.append({"name": name, "path": path, "size": os.path.getsize(path), "timestamp": file["timestamp"]})
+    with _state_lock:
+        _sent_files[:] = restored
 
 
 @app.route("/")
@@ -73,7 +114,7 @@ def index():
 @app.before_request
 def protect_incoming_transfers():
     """Only this app's page can submit transfers in either direction."""
-    if request.endpoint not in ("receive_clipboard", "receive_file", "share_clipboard", "share_file") or request.method != "POST":
+    if request.endpoint not in ("receive_clipboard", "receive_file", "share_clipboard", "share_file", "open_received_in_app") or request.method != "POST":
         return
     token = request.headers.get("X-Mac2Windows-Token", "")
     if not secrets.compare_digest(token.encode("utf-8"), _incoming_token.encode("utf-8")):
@@ -193,8 +234,10 @@ def submit_file(to_windows):
 @app.route("/api/state")
 def api_state():
     """Polled by the web page via JS for live updates."""
+    received_files = list_received_files()
     with _state_lock:
         return jsonify({
+            "received_files": received_files,
             "received_file_events": list(_received_file_events),
             "clipboard": _clipboard_content["text"],
             "clipboard_time": _clipboard_content["timestamp"],
@@ -217,7 +260,71 @@ def api_file(name):
         match = next((f for f in _sent_files if f["name"] == name), None)
     if not match or not os.path.exists(match["path"]):
         return "Not found", 404
-    return send_file(match["path"], as_attachment=True, download_name=name)
+    response = send_file(match["path"], as_attachment=request.args.get("open") != "1", download_name=name)
+    response.headers["Content-Security-Policy"] = "sandbox"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def list_received_files():
+    """Include saved incoming files after a restart, but never partial uploads or links."""
+    files = []
+    with os.scandir(RECEIVE_DIR) as entries:
+        for entry in entries:
+            if entry.name.startswith(".") or not entry.is_file(follow_symlinks=False):
+                continue
+            try:
+                stat = entry.stat(follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            files.append({"name": entry.name, "size": stat.st_size, "timestamp": stat.st_mtime})
+    return sorted(files, key=lambda item: item["timestamp"], reverse=True)
+
+
+@app.route("/api/received/file/<name>")
+def open_received_file(name):
+    # Only listable received files may be opened. Never accept paths or follow symlinks.
+    if name.startswith(".") or "/" in name or "\\" in name:
+        return "Not found", 404
+    path = os.path.join(RECEIVE_DIR, name)
+    if os.path.islink(path) or not os.path.isfile(path):
+        return "Not found", 404
+    response = send_file(path, as_attachment=request.args.get("download") == "1", download_name=name)
+    response.headers["Content-Security-Policy"] = "sandbox"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def request_is_from_mac():
+    """Native opening is restricted to this Mac, not other computers on the LAN."""
+    addresses = {"127.0.0.1", "::1"}
+    try:
+        addresses.update(socket.gethostbyname_ex(socket.gethostname())[2])
+    except OSError:
+        pass
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
+            route.connect(("8.8.8.8", 80))
+            addresses.add(route.getsockname()[0])
+    except OSError:
+        pass
+    return request.remote_addr in addresses
+
+
+@app.route("/api/received/open/<name>", methods=["POST"])
+def open_received_in_app(name):
+    if not request_is_from_mac():
+        return jsonify({"error": "Open this file from the page on the Mac."}), 403
+    if name.startswith(".") or "/" in name or "\\" in name:
+        return jsonify({"error": "File not found."}), 404
+    path = os.path.join(RECEIVE_DIR, name)
+    if os.path.islink(path) or not os.path.isfile(path):
+        return jsonify({"error": "File not found."}), 404
+    try:
+        subprocess.run(["/usr/bin/open", path], check=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return jsonify({"error": "Could not open this file. Try Download or Open Received Files in the Mac menu."}), 503
+    return jsonify({"ok": True})
 
 
 @app.route("/api/clear", methods=["POST"])
@@ -234,4 +341,5 @@ def api_clear():
 
 def run_server(host="0.0.0.0", port=5577):
     """Start the Flask server (call in a thread)."""
+    restore_shared_files()
     app.run(host=host, port=port, threaded=True, debug=False, use_reloader=False)
