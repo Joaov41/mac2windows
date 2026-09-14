@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="mac2windows-token" content="{{ incoming_token }}">
+    <meta name="theme-color" content="#f3f5f3">
+    <title>Mac2Windows Transfer</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --canvas: #f3f5f3;
+            --surface: #fff;
+            --ink: #1e2925;
+            --muted: #68766e;
+            --line: #e0e6e2;
+            --well: #f5f7f5;
+            --accent: #285a46;
+            --accent-hover: #1e4937;
+            --danger: #b13e35;
+            --radius: 9px;
+            --ease: cubic-bezier(.16, 1, .3, 1);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-synthesis: none;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: var(--canvas); color: var(--ink); -webkit-font-smoothing: antialiased; }
+        button, input, textarea { font: inherit; }
+        button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
+        button, a { touch-action: manipulation; }
+        button { cursor: pointer; }
+        button:disabled { cursor: not-allowed; }
+        button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+            outline: 3px solid #74a58d; outline-offset: 4px;
+        }
+        [hidden] { display: none !important; }
+        svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+        .page { width: min(100% - 64px, 1224px); margin: 0 auto; padding: 38px 0 24px; }
+        .topbar { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+        .brand { display: flex; align-items: center; gap: 16px; font-size: 27px; font-weight: 650; letter-spacing: -.9px; }
+        .brand svg { width: 32px; height: 32px; color: #243c31; stroke-width: 1.9; }
+        .connection { display: flex; align-items: center; gap: 10px; font-size: 15px; line-height: 1.4; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #a3afa7; }
+        .status-dot.live { background: #39846a; }
+        .status-dot.offline { background: var(--danger); }
+        .status-dot.connecting { animation: breathe 1.8s ease-in-out infinite; }
+        .connection:has(.offline) { color: var(--danger); }
+        .brand h1 { margin: 0; font: inherit; letter-spacing: inherit; }
+        .workspace { margin-top: 28px; display: grid; grid-template-columns: .95fr 1.05fr; background: var(--surface); border: 1px solid var(--line); border-radius: 19px; box-shadow: 0 8px 28px -18px #223f342a; overflow: hidden; }
+        .direction { padding: 28px; min-width: 0; display: flex; flex-direction: column; }
+        .direction + .direction { border-left: 1px solid var(--line); }
+        .direction-header { display: flex; align-items: flex-start; gap: 18px; min-height: 76px; border-bottom: 1px solid var(--line); padding: 0 10px 23px; }
+        .direction-header > svg { height: 35px; width: 35px; margin-top: 1px; color: #284d3c; stroke-width: 1.85; }
+        .direction h2 { margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: -.65px; font-weight: 640; }
+        .direction-header p { margin: 7px 0 0; font-size: 15px; color: var(--muted); line-height: 1.45; }
+        .section { padding-top: 23px; min-width: 0; }
+        .section-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+        h3 { margin: 0; font-size: 20px; line-height: 1.3; font-weight: 620; letter-spacing: -.45px; }
+        .section-meta { font-size: 12px; color: var(--muted); }
+        .clipboard-section { min-height: 305px; padding-bottom: 22px; }
+        .clipboard-box, .send-text { border: 1px solid #d9e1dc; border-radius: var(--radius); font-size: 13px; line-height: 1.65; padding: 13px 15px; }
+        .clipboard-box { height: 156px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--well); font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; user-select: text; }
+        .clipboard-box.empty { color: #79877f; }
+        .copy-btn, .download-btn { display: inline-flex; justify-content: center; align-items: center; min-height: 42px; border: 1px solid transparent; border-radius: 8px; background: var(--accent); color: #fff; font-size: 14px; font-weight: 550; line-height: 1.3; padding: 10px 17px; text-decoration: none; transition: background .18s var(--ease), border-color .18s var(--ease), transform .18s var(--ease), box-shadow .18s var(--ease); }
+        .copy-btn { width: 100%; margin-top: 13px; }
+        .copy-btn:hover:not(:disabled), .download-btn:hover { background: var(--accent-hover); box-shadow: 0 3px 8px -5px #173c2e66; }
+        .copy-btn:active:not(:disabled), .download-btn:active { transform: scale(.985); }
+        .copy-btn:disabled { color: #72857a; background: #e6ece7; border-color: #cad6ce; box-shadow: none; }
+        #copy-btn { background: #fff; color: var(--accent); border-color: #b5c7bc; }
+        #copy-btn:disabled { color: #76857c; background: #edf1ed; border-color: #cad6ce; }
+        #copy-btn:hover:not(:disabled) { background: #eef4ef; }
+        .timestamp { margin-top: 9px; color: var(--muted); font-size: 11px; line-height: 1.4; min-height: 0; }
+        .timestamp:empty { display: none; }
+        .files-section { border-top: 1px solid var(--line); flex: 1; display: flex; flex-direction: column; }
+        .clear-btn { border: 0; background: none; color: var(--muted); padding: 5px 0 5px 10px; font-size: 12px; min-height: 30px; transition: color .15s; }
+        .clear-btn:hover { color: var(--danger); }
+        .file-list { padding: 0; margin: 0; list-style: none; }
+        .file-item { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); padding: 14px 0; }
+        .file-item > div { min-width: 0; }
+        .file-item:last-child { border-bottom: 0; }
+        .file-name { font-weight: 550; font-size: 14px; overflow-wrap: anywhere; }
+        .file-size { color: var(--muted); font-size: 12px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+        .download-btn { flex: none; min-height: 34px; font-size: 12px; padding: 7px 12px; background: #edf3ee; color: var(--accent); border-color: #d3dfd6; }
+        .download-btn:hover { color: #fff; }
+        .empty-icon { display: none; align-self: center; color: #698277; margin: 29px 0 18px; }
+        .empty-icon svg { width: 37px; height: 42px; stroke-width: 1.5; }
+        .files-section:has(.empty-state) .empty-icon { display: block; }
+        .empty-state { color: var(--ink); font-size: 14px; text-align: center; line-height: 1.5; padding: 0; }
+        .empty-help { display: none; text-align: center; font-size: 13px; line-height: 1.6; color: var(--muted); margin: 6px 0 35px; }
+        .files-section:has(.empty-state) .empty-help { display: block; }
+        .clear-note { margin: auto 0 0; padding-top: 42px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+        label { display: block; color: var(--muted); font-size: 13px; line-height: 1.4; margin-bottom: 6px; }
+        .send-section .section-title { margin-bottom: 12px; }
+        .send-text { display: block; width: 100%; height: 132px; min-height: 132px; resize: vertical; background: #fff; color: var(--ink); font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+        .send-text::placeholder { color: #79877f; opacity: 1; }
+        .send-text:focus { border-color: #709881; outline: 2px solid #d2e2d7; outline-offset: 1px; }
+        .transfer-help { margin: 9px 0 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
+        .file-picker { display: flex; align-items: center; gap: 22px; padding: 20px; background: var(--well); border: 1px solid var(--line); border-radius: var(--radius); }
+        .file-picker > svg { color: #4c6d5d; height: 27px; width: 27px; }
+        .upload-input { width: 100%; min-width: 0; font-size: 12px; line-height: 1.6; color: var(--muted); }
+        .upload-input::file-selector-button { font: inherit; color: var(--ink); padding: 7px 13px; background: #fff; border: 1px solid #aebdb3; border-radius: 5px; margin-right: 16px; cursor: pointer; }
+        .upload-input::file-selector-button:hover { background: #eef3ee; }
+        .upload-input:disabled::file-selector-button { cursor: not-allowed; opacity: .6; }
+        .save-location { display: flex; align-items: flex-start; gap: 14px; border-top: 1px solid var(--line); margin-top: 21px; padding-top: 21px; color: #4c6d5d; }
+        .save-location svg { width: 24px; height: 24px; margin-top: 1px; }
+        .save-location p { margin: 0; font-size: 13px; line-height: 1.65; color: var(--muted); }
+        .save-location strong { font-weight: 500; color: #45564c; overflow-wrap: anywhere; }
+        .save-location span { display: block; }
+        .transfer-status { margin: 12px 0 0; padding: 10px 12px; border-left: 2px solid #589b74; background: #f0f6f1; color: #315b41; border-radius: 0 5px 5px 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+        .transfer-status:empty { display: none; }
+        .transfer-status.error { border-color: #c3665f; background: #fcf3f1; color: var(--danger); }
+        .upload-progress { display: block; width: 100%; height: 5px; margin-top: 15px; border: 0; border-radius: 4px; accent-color: var(--accent); }
+        .upload-progress::-webkit-progress-bar { background: #e7ede8; border-radius: 4px; }
+        .upload-progress::-webkit-progress-value { background: var(--accent); border-radius: 4px; }
+        .upload-results { list-style: none; padding: 0; margin: 0; }
+        .upload-results li { margin-top: 8px; padding: 8px 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; color: #45684f; }
+        .upload-results .error { color: var(--danger); }
+        .footer { margin: 24px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+        #toast { display: none; position: fixed; bottom: 20px; right: 24px; z-index: 20; max-width: min(410px, calc(100vw - 40px)); align-items: center; gap: 10px; padding: 13px 17px; color: #fff; background: #294b3c; border: 1px solid #3e6050; border-radius: 10px; box-shadow: 0 5px 20px #1933271a; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+        #toast.show { display: flex; animation: arrive .25s var(--ease); }
+        #toast svg { width: 18px; height: 18px; }
+        @keyframes arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes breathe { 50% { opacity: .45; } }
+        @media (min-width: 1280px) { .direction { padding: 28px; } }
+        @media (max-width: 900px) {
+            .page { width: calc(100% - 40px); padding-top: 28px; }
+            .direction { padding: 22px; }
+            .direction-header { padding-left: 0; gap: 13px; }
+            .direction h2 { font-size: 22px; }
+            .file-picker { gap: 12px; padding: 16px 12px; }
+        }
+        @media (max-width: 720px) {
+            .workspace { grid-template-columns: 1fr; }
+            .direction + .direction { border-left: 0; border-top: 1px solid var(--line); }
+            .clipboard-section { min-height: 0; }
+            .clipboard-box { height: 150px; }
+            .empty-icon { margin-top: 12px; }
+            .clear-note { padding-top: 12px; }
+            .empty-help { margin-bottom: 20px; }
+            .brand { font-size: 21px; gap: 11px; }
+            .brand svg { width: 28px; height: 28px; }
+            .connection { font-size: 12px; gap: 7px; }
+        }
+        @media (max-width: 470px) {
+            .page { width: calc(100% - 32px); padding-top: 24px; }
+            .topbar { flex-wrap: wrap; gap: 16px; }
+            .connection { width: 100%; }
+            .direction { padding: 22px 20px; }
+            .file-picker > svg { display: none; }
+            #toast { bottom: 16px; right: 16px; max-width: calc(100vw - 32px); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <header class="topbar">
+            <div class="brand">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h17m-5-5 5 5-5 5M21 17H4m5-5-5 5 5 5"/></svg>
+                <h1>Mac2Windows</h1>
+            </div>
+            <div class="connection" role="status">
+                <span id="status-dot" class="status-dot connecting" aria-hidden="true"></span>
+                <span id="status-text">Connecting...</span>
+            </div>
+        </header>
+        <main class="workspace">
+            <section class="direction" aria-labelledby="from-mac-title">
+                <header class="direction-header">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 4-16 16M4 7v13h13"/></svg>
+                    <div><h2 id="from-mac-title">{{ "Available on Windows" if client_is_mac else "From Mac" }}</h2><p>{{ "Shared text and files appear in the Windows browser." if client_is_mac else "Ready to use on this device." }}</p></div>
+                </header>
+                <section class="section clipboard-section" aria-labelledby="clipboard-title">
+                    <div class="section-title"><h3 id="clipboard-title">Clipboard</h3><span class="section-meta">Live updates</span></div>
+                    <div id="clipboard-box" class="clipboard-box empty" tabindex="0" aria-label="{{ "Text shared with Windows" if client_is_mac else "Clipboard text from Mac" }}">{{ "Copy text on your Mac or send it here." if client_is_mac else "Waiting for clipboard from Mac..." }}</div>
+                    <button type="button" class="copy-btn" id="copy-btn" disabled onclick="copyClipboard()">Copy to clipboard</button>
+                    <div class="timestamp" id="clipboard-time"></div>
+                </section>
+                <section class="section files-section" aria-labelledby="from-files-title">
+                    <div class="section-title"><h3 id="from-files-title">Files</h3><button type="button" class="clear-btn" onclick="clearAll()">Clear all</button></div>
+                    <div class="empty-icon" aria-hidden="true"><svg viewBox="0 0 28 32"><path d="M17 2H5a2 2 0 0 0-2 2v24a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V10Z"/><path d="M17 2v9h8"/></svg></div>
+                    <ul class="file-list" id="file-list"><li class="empty-state">No files sent yet.</li></ul>
+                    <p class="empty-help">{{ "Send files here, or use the Mac menu to share a folder." if client_is_mac else "Use the Mac menu to share a file or folder." }}</p>
+                    <p class="clear-note">Clear all removes outgoing items only.</p>
+                </section>
+            </section>
+            <section class="direction" aria-labelledby="to-mac-title">
+                <header class="direction-header">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20 20 4M7 4h13v13"/></svg>
+                    <div><h2 id="to-mac-title">Send to {{ "Windows" if client_is_mac else "Mac" }}</h2><p>{{ "Share text and files with your Windows PC." if client_is_mac else "Send something back to your Mac." }}</p></div>
+                </header>
+                <section class="section clipboard-section send-section" aria-labelledby="send-text-title">
+                    <div class="section-title"><h3 id="send-text-title">Clipboard text</h3></div>
+                    <form id="send-clipboard-form">
+                        <label for="send-clipboard-text">Text to send</label>
+                        <textarea id="send-clipboard-text" class="send-text" maxlength="1048576" placeholder="Paste text here" aria-describedby="send-text-help"></textarea>
+                        <button type="submit" class="copy-btn" id="send-clipboard-btn" disabled>{{ "Send to Windows" if client_is_mac else "Send to Mac clipboard" }}</button>
+                    </form>
+                    <p class="transfer-help" id="send-text-help">{{ "On Windows, click Copy to clipboard, then paste with Ctrl+V." if client_is_mac else "Then paste on your Mac with Command+V." }}</p>
+                    <p id="send-clipboard-status" class="transfer-status" role="status"></p>
+                </section>
+                <section class="section files-section" aria-labelledby="send-files-title">
+                    <div class="section-title"><h3 id="send-files-title">Files</h3></div>
+                    <form id="upload-form">
+                        <label for="upload-files" class="sr-only">Choose files</label>
+                        <div class="file-picker">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9Z"/><path d="M14 2v7h7M12 19v-7m-3 3 3-3 3 3"/></svg>
+                            <input type="file" id="upload-files" class="upload-input" multiple aria-describedby="file-limit">
+                        </div>
+                        <button type="submit" class="copy-btn" id="upload-btn" disabled>Send files to {{ "Windows" if client_is_mac else "Mac" }}</button>
+                    </form>
+                    <p class="transfer-help" id="file-limit">Up to 2 GiB per file.</p>
+                    <progress id="upload-progress" class="upload-progress" max="100" value="0" aria-label="File upload progress" hidden></progress>
+                    <p id="upload-status" class="transfer-status" role="status"></p>
+                    <ul id="upload-results" class="upload-results" aria-label="Upload results"></ul>
+                    <div class="save-location">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v11H3Z"/></svg>
+                        {% if client_is_mac %}<p>Open this page on <strong>Windows</strong><span>Your files appear under From Mac. Click Download to save them.</span></p>{% else %}<p>Saved to <strong>mac2windows/received</strong><span>Find them in the Mac menu under Open Received Files.</span></p>{% endif %}
+                    </div>
+                </section>
+            </section>
+        </main>
+        <footer class="footer">Keep Mac2Windows running on your Mac.</footer>
+    </div>
+    <div id="toast" role="status"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg><span id="toast-text"></span></div>
+
+    <script>
+        const clientIsMac = {{ client_is_mac | tojson }};
+        const transferBase = clientIsMac ? "/api/share" : "/api/receive";
+        const clipboardPlaceholder = clientIsMac
+            ? "Copy text on your Mac or send it here." : "Waiting for clipboard from Mac...";
+        let lastClipboard = "";
+        let lastFileCount = 0;
+        let lastFileNames = [];
+        let copyFeedbackTimer;
+
+        function clipboardIsSelected() {
+            const selection = window.getSelection();
+            return selection && !selection.isCollapsed && selection.rangeCount > 0
+                && selection.getRangeAt(0).intersectsNode(document.getElementById('clipboard-box'));
+        }
+
+        async function poll() {
+            try {
+                const res = await fetch('/api/state');
+                const data = await res.json();
+                document.getElementById('status-dot').className = 'status-dot live';
+                document.getElementById('status-text').textContent = clientIsMac ? 'Ready on Mac' : 'Connected to Mac';
+
+                // Clipboard
+                const clipBox = document.getElementById('clipboard-box');
+                const copyBtn = document.getElementById('copy-btn');
+                const clipTime = document.getElementById('clipboard-time');
+                // Keep the text node intact while selecting/copying, or if unchanged.
+                if (!clipboardIsSelected()) {
+                    if (data.clipboard !== lastClipboard) {
+                        if (data.clipboard) showToast(clientIsMac ? 'Text ready to copy on Windows' : 'Clipboard received from Mac');
+                        lastClipboard = data.clipboard;
+                        clipBox.textContent = data.clipboard || clipboardPlaceholder;
+                        clipBox.classList.toggle('empty', !data.clipboard);
+                        copyBtn.disabled = !data.clipboard;
+                    }
+                    clipTime.textContent = data.clipboard_time
+                        ? 'Sent: ' + new Date(data.clipboard_time * 1000).toLocaleString() : '';
+                }
+
+                // Files
+                const fileList = document.getElementById('file-list');
+                if (data.files && data.files.length > 0) {
+                    // Detect new files
+                    let newFiles = data.files.filter(f => !lastFileNames.includes(f.name));
+                    if (newFiles.length > 0) {
+                        newFiles.forEach(f => showToast((clientIsMac ? 'File ready to download on Windows: ' : 'File received from Mac: ') + f.name));
+                    }
+                    lastFileNames = data.files.map(f => f.name);
+
+                    fileList.innerHTML = data.files.map(f => {
+                        const sizeStr = f.size > 1048576
+                            ? (f.size / 1048576).toFixed(1) + ' MB'
+                            : (f.size / 1024).toFixed(1) + ' KB';
+                        return `<li class="file-item">
+                            <div>
+                                <span class="file-name">${f.name}</span><br>
+                                <span class="file-size">${sizeStr}</span>
+                            </div>
+                            <a class="download-btn" href="/api/file/${encodeURIComponent(f.name)}" download>Download</a>
+                        </li>`;
+                    }).join('');
+                } else {
+                    fileList.innerHTML = '<li class="empty-state">No files sent yet.</li>';
+                    lastFileNames = [];
+                }
+            } catch (e) {
+                document.getElementById('status-dot').className = 'status-dot offline';
+                document.getElementById('status-text').textContent = 'Mac offline. Retrying...';
+            }
+        }
+
+        function copyWithSelection(text) {
+            // LAN HTTP pages cannot use the modern Clipboard API.
+            const field = document.createElement('textarea');
+            field.value = text;
+            field.readOnly = true;
+            field.style.cssText = 'position:fixed;top:0;left:-9999px;font-size:16px;';
+            const focused = document.activeElement;
+            const selection = window.getSelection();
+            const ranges = [];
+            if (selection) {
+                for (let i = 0; i < selection.rangeCount; i++) {
+                    ranges.push(selection.getRangeAt(i).cloneRange());
+                }
+            }
+            document.body.appendChild(field);
+            try {
+                field.focus({ preventScroll: true });
+                field.select();
+                return document.execCommand('copy');
+            } catch (e) {
+                return false;
+            } finally {
+                field.remove();
+                if (focused) focused.focus({ preventScroll: true });
+                if (selection) {
+                    selection.removeAllRanges();
+                    ranges.forEach(range => selection.addRange(range));
+                }
+            }
+        }
+
+        async function copyClipboard() {
+            const clipBox = document.getElementById('clipboard-box');
+            if (clipBox.classList.contains('empty')) return;
+            const text = clipBox.textContent;
+            let copied = false;
+            if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    copied = true;
+                } catch (e) {
+                    // A denied permission can still allow copying from the click.
+                }
+            }
+            if (!copied) copied = copyWithSelection(text);
+            if (copied) {
+                const btn = document.getElementById('copy-btn');
+                btn.textContent = 'Copied!';
+                clearTimeout(copyFeedbackTimer);
+                copyFeedbackTimer = setTimeout(() => btn.textContent = 'Copy to clipboard', 1500);
+            } else {
+                const selection = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(clipBox);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                showToast('Copy was blocked. Text selected: press Ctrl+C on Windows or Command+C on Mac.');
+            }
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-text').textContent = message;
+            toast.classList.add('show');
+            clearTimeout(window._toastTimer);
+            window._toastTimer = setTimeout(() => {
+                toast.classList.remove('show');
+            }, 10000);
+        }
+
+        async function clearAll() {
+            await fetch('/api/clear', { method: 'POST' });
+            location.reload();
+        }
+
+        const incomingToken = document.querySelector('meta[name="mac2windows-token"]').content;
+        const sendText = document.getElementById('send-clipboard-text');
+        const sendButton = document.getElementById('send-clipboard-btn');
+        let sendingText = false;
+        sendText.addEventListener('input', () => {
+            sendButton.disabled = sendingText || !sendText.value;
+        });
+        document.getElementById('send-clipboard-form').addEventListener('submit', async event => {
+            event.preventDefault();
+            if (sendingText || !sendText.value) return;
+            const status = document.getElementById('send-clipboard-status');
+            sendingText = true;
+            sendButton.disabled = true;
+            status.classList.remove('error');
+            status.textContent = clientIsMac ? 'Sending to Windows...' : 'Sending to Mac clipboard...';
+            try {
+                const response = await fetch(transferBase + '/clipboard', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Mac2Windows-Token': incomingToken },
+                    body: JSON.stringify({ text: sendText.value }),
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) throw new Error(data.error || 'Could not send the text.');
+                status.textContent = clientIsMac
+                    ? 'Ready on Windows. Click Copy to clipboard there, then paste with Ctrl+V.'
+                    : 'Sent to Mac clipboard. Use Command+V on the Mac to paste.';
+            } catch (error) {
+                status.classList.add('error');
+                status.textContent = error.message || 'Could not reach the Mac. Please try again.';
+            } finally {
+                sendingText = false;
+                sendButton.disabled = !sendText.value;
+            }
+        });
+
+        const uploadInput = document.getElementById('upload-files');
+        const uploadButton = document.getElementById('upload-btn');
+        const uploadProgress = document.getElementById('upload-progress');
+        let uploading = false;
+        uploadInput.addEventListener('change', () => {
+            uploadButton.disabled = uploading || !uploadInput.files.length;
+        });
+
+        function uploadFile(file, onProgress) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', transferBase + '/file');
+                xhr.setRequestHeader('X-Mac2Windows-Token', incomingToken);
+                xhr.responseType = 'json';
+                xhr.upload.onprogress = event => {
+                    if (event.lengthComputable) onProgress(Math.round(event.loaded / event.total * 100));
+                };
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300 && xhr.response && xhr.response.ok) {
+                        resolve(xhr.response);
+                    } else {
+                        reject(new Error(xhr.response && xhr.response.error || 'Could not upload this file.'));
+                    }
+                };
+                xhr.onerror = () => reject(new Error('Connection lost. Check the Mac and try again.'));
+                xhr.onabort = () => reject(new Error('Upload cancelled.'));
+                const body = new FormData();
+                body.append('file', file);
+                xhr.send(body);
+            });
+        }
+
+        document.getElementById('upload-form').addEventListener('submit', async event => {
+            event.preventDefault();
+            const files = Array.from(uploadInput.files);
+            if (uploading || !files.length) return;
+            uploading = true;
+            uploadButton.disabled = true;
+            uploadInput.disabled = true;
+            const status = document.getElementById('upload-status');
+            const results = document.getElementById('upload-results');
+            results.replaceChildren();
+            status.classList.remove('error');
+            uploadProgress.hidden = false;
+            let sent = 0;
+            try {
+                for (const [index, file] of files.entries()) {
+                    uploadProgress.value = 0;
+                    const label = `Sending ${index + 1} of ${files.length}: ${file.name}`;
+                    status.textContent = label;
+                    const result = document.createElement('li');
+                    results.appendChild(result);
+                    try {
+                        if (file.size > 2 * 1024 * 1024 * 1024) throw new Error('File is too large (maximum 2 GiB).');
+                        const data = await uploadFile(file, percent => {
+                            uploadProgress.value = percent;
+                            status.textContent = `${label} (${percent}%)`;
+                        });
+                        sent++;
+                        result.textContent = clientIsMac
+                            ? `${file.name} → ready to download on Windows as ${data.name}.`
+                            : `${file.name} → saved as ${data.name} on the Mac.`;
+                    } catch (error) {
+                        result.classList.add('error');
+                        result.textContent = `${file.name}: ${error.message}`;
+                    }
+                }
+                status.textContent = clientIsMac
+                    ? `${sent} of ${files.length} file(s) ready to download on Windows.`
+                    : `${sent} of ${files.length} file(s) saved on the Mac.`;
+                status.classList.toggle('error', sent !== files.length);
+                if (sent === files.length) uploadInput.value = '';
+            } finally {
+                uploading = false;
+                uploadProgress.hidden = true;
+                uploadInput.disabled = false;
+                uploadButton.disabled = !uploadInput.files.length;
+            }
+        });
+
+        // Poll every 2 seconds
+        setInterval(poll, 2000);
+        poll();
+    </script>
+</body>
+</html>

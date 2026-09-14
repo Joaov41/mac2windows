@@ -1,0 +1,16 @@
+# Local Python environments and generated files
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Personal transfer data; never commit these folders
+/transfers/
+/received/
+
+# Local configuration and operating-system files
+.env
+.env.*
+*.log
+.DS_Store
