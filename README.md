@@ -80,3 +80,7 @@ The virtual environment, clipboard contents, and transferred files are not inclu
 ```
 
 Tests cover both device views, transfer directions, downloads, filename collisions, size limits, request guards, and outgoing-only clearing. They use temporary files and mock writes to the Mac clipboard.
+
+## License
+
+[MIT License](LICENSE). Copyright (c) 2026 Joaov41.
